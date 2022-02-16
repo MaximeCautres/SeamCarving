@@ -141,6 +141,18 @@ def main_seam(input_path, output_path, step):
         IMG_NAME = input_path[-1]
         IMG_DIR = "/".join(input_path[:-1])+"/"
 
+    # Allow the choice for the save path directly from the call
+    # We do it now in order to have a early fail
+    OUT_DIR = "./output/"
+    OUT_NAME = "im1.png" # TODO Add an automatic save that not erase already existing file
+    if output_path is not None:
+        output_path = ("./"+output_path).split('/')
+        OUT_NAME = output_path[-1]
+        OUT_DIR = "/".join(output_path[:-1])+"/"
+        print(OUT_DIR, OUT_NAME)
+    if not os.path.exists(OUT_DIR):
+        os.makedirs(OUT_DIR)
+
     file = os.path.join(IMG_DIR, f"{IMG_NAME}")
     if not os.path.exists(file):
         print("File not found.  Exiting...")
@@ -162,16 +174,7 @@ def main_seam(input_path, output_path, step):
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-    # Allow the choice for the save path directly from the call
-    OUT_DIR = "./output/"
-    OUT_NAME = "im1.png" # TODO Add an automatic save that not erase already existing file
-    if output_path is not None:
-        output_path = ("./"+output_path).split('/')
-        OUT_NAME = output_path[-1]
-        OUT_DIR = "/".join(output_path[:-1])+"/"
-        print(OUT_DIR, OUT_NAME)
-    if not os.path.exists(OUT_DIR):
-        os.makedirs(OUT_DIR)
+    # Save the output
     print(f"Saving the output at {OUT_DIR+OUT_NAME}")
     cv2.imwrite(OUT_DIR+OUT_NAME, output)
 
