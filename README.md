@@ -9,3 +9,9 @@ Member of the team:
 Supervisor:
 - David Coeurjolly
 - Vincent Nivoliers
+
+TODO:
+[] Implementing a better autosave 
+
+Done:
+[x] Implementing the seam carving for picture
