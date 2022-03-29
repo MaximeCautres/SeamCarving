@@ -103,7 +103,7 @@ def get_minimal_path_image_highlight(paths):
     return paths, line
 
 
-def get_rid_of_line(source, line, cut_horizontal):
+def get_rid_of_line(source, paths, line, cut_horizontal):
     """
     This function takes in entry the source and the path
     of lowest energy and returns the source were paths pixels
@@ -116,12 +116,15 @@ def get_rid_of_line(source, line, cut_horizontal):
         tmp = source
     rows, cols, nb_colours = tmp.shape
     new_source = np.zeros((rows, cols-1, nb_colours))
+    new_paths = np.zeros((rows, cols-1))
     for i in range(rows):
         new_source[i, :line[i]] = tmp[i, :line[i]]
         new_source[i, line[i]:] = tmp[i, line[i]+1:]
+        new_paths[i, :line[i]] = paths[i, :line[i]]
+        new_paths[i, line[i]:] = paths[i, line[i]+1:]
     if cut_horizontal:
         new_source = np.swapaxes(new_source, 0, 1)
-    return new_source
+    return new_source, new_paths
 
 
 def write_progress_to_console(step, nb_steps):
@@ -143,7 +146,7 @@ def write_progress_to_console(step, nb_steps):
         print(f"Computing step n°{step} of {nb_steps}")
 
 
-def seam_carving_x(source: np.ndarray, steps: int, cut_horizontal: Boolean):
+def seam_carving_x(source: np.ndarray, steps: int, remove_per_step: int, cut_horizontal: Boolean):
     """
     The function takes in entry an image source and a parameter
     steps specifying the number of steps to do in the seam carving
@@ -156,17 +159,15 @@ def seam_carving_x(source: np.ndarray, steps: int, cut_horizontal: Boolean):
         # O(n^2 * d^2)
         gradient_map = get_edge_gradient(source)
         paths = get_minimal_path_image(gradient_map, cut_horizontal)
-        best_path, line = get_minimal_path_image_highlight(paths)
-        source = get_rid_of_line(source, line, cut_horizontal)
-
-        if steps is None:
-            cv2.imshow("bestpath", best_path.astype('uint8'))
-            cv2.waitKey(0)
+        for _ in range(remove_per_step):
+            best_path, line = get_minimal_path_image_highlight(paths)
+            source, paths = get_rid_of_line(
+                source, best_path, line, cut_horizontal)
 
     return source
 
 
-def main_seam(step: int, src_path: str, output_path: str, force_write: Boolean, cut_horizontal: Boolean):
+def main_seam(step: int, remove_per_step: int, src_path: str, output_path: str, force_write: Boolean, cut_horizontal: Boolean):
     """
     This function is an encapsulation for the seam
     carving. The function manages the argv entry
@@ -198,7 +199,7 @@ def main_seam(step: int, src_path: str, output_path: str, force_write: Boolean, 
     print("The source image is loaded ")
 
     # Seam Carving part
-    output = seam_carving_x(source, step, cut_horizontal)
+    output = seam_carving_x(source, step, remove_per_step, cut_horizontal)
 
     # Save the output
     cv2.imwrite(output_path, output)
@@ -216,6 +217,9 @@ if __name__ == '__main__':
         description='Apply the seam carving methode to an input image.')
     parser.add_argument('step', nargs=1, type=int,
                         help="Specify the number of columns to remove in the seam carving")
+    parser.add_argument('-per-step', dest="per_step", type=int,
+                        default=1,
+                        help='Specify how many path to remove at each step.')
     parser.add_argument('-i', '--input', dest="input", type=str,
                         default="../images/sunset.png",
                         help='Specify the path to the input image, default correspond to an example')
@@ -227,5 +231,5 @@ if __name__ == '__main__':
     parser.add_argument('--horizontal', dest="horizontal", action='store_true')
     args = parser.parse_args()
 
-    main_seam(args.step[0], args.input, args.output,
+    main_seam(args.step[0], args.per_step, args.input, args.output,
               args.force, args.horizontal)
