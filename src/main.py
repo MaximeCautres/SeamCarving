@@ -1,4 +1,6 @@
 from pickletools import uint8
+from xmlrpc.client import Boolean
+from cv2 import seamlessClone
 import numpy as np
 import cv2
 import os
@@ -9,22 +11,34 @@ from PIL import ImageFilter
 from scipy import signal
 
 
-def colorized_gradient(img):
-    """
-    A Function used to debug to observe the gradient
-    """
-    rows, cols = img.shape
-    colorized_gradient_img = np.zeros((*img.shape, 3))
-    for i in range(rows):
-        for j in range(cols):
-            if img[i, j] >= 0:
-                colorized_gradient_img[i, j, :] = np.array([0, 0, img[i, j]])
-            else:
-                colorized_gradient_img[i, j, :] = np.array([-img[i, j], 0, 0])
-    return (colorized_gradient_img/np.amax(colorized_gradient_img)*255).astype('uint8')
+def run_app(path):
+    print(f"Running seam carving on {path}")
 
 
-def get_edge_gradient(source):
+def get_rows_cols(img, cut_horizontal: Boolean):
+    if cut_horizontal:
+        row, col = img.shape
+        return col, row
+    else:
+        return img.shape
+
+
+# def colorized_gradient(img, cut_horizontal: Boolean):
+#     """
+#     A Function used to debug to observe the gradient
+#     """
+#     rows, cols = get_rows_cols(img, cut_horizontal)
+#     colorized_gradient_img = np.zeros((*img.shape, 3))
+#     for i in range(rows):
+#         for j in range(cols):
+#             if img[i, j] >= 0:
+#                 colorized_gradient_img[i, j, :] = np.array([0, 0, img[i, j]])
+#             else:
+#                 colorized_gradient_img[i, j, :] = np.array([-img[i, j], 0, 0])
+#     return (colorized_gradient_img/np.amax(colorized_gradient_img)*255).astype('uint8')
+
+
+def get_edge_gradient(source: np.ndarray):
     """
     This function takes an image and returns its gradient.
     The gradient is the square root of the sum of the square of
@@ -49,13 +63,19 @@ def get_edge_gradient(source):
     return result
 
 
-def get_minimal_path_image(gradient):
+def get_minimal_path_image(gradient_img: np.ndarray, cut_horizontal: Boolean):
     """
     This function takes in entry the gradient and computes the
     image of potential energy.
     """
+    # if we're cutting horizontally, we need to transpose the gradient
+    # map so that indexing is corrent
+    if cut_horizontal:
+        gradient = np.transpose(gradient_img)
+    else:
+        gradient = gradient_img
     rows, cols = gradient.shape
-    path_values = np.zeros(gradient.shape)
+    path_values = np.zeros((rows, cols))
     for i in range(rows-2, -1, -1):
         for j in range(cols):
             path_values[i, j] = gradient[i, j] + min(path_values[i+1, max(0, j-1)], min(
@@ -74,75 +94,79 @@ def get_minimal_path_image_highlight(paths):
     line[0] = np.argmin(paths[0])
     paths[0, line[0]] = 255
     for i in range(rows-1):
+        # python slicing [min:max] is inclusive of min but exclusive of max
+        # argmin is taking a value a 0,1,2.  Subtract the one to rescale provided
+        # we're not on the first column of the array
         line[i+1] = line[i]-1*(0 != line[i]) + np.argmin(paths[i+1,
                                                                max(0, line[i]-1):min(cols, line[i]+2)])
         paths[i+1, line[i+1]] = 255
     return paths, line
 
 
-def get_rid_of_line(source, line):
+def get_rid_of_line(source, line, cut_horizontal):
     """
     This function takes in entry the source and the path
     of lowest energy and returns the source were paths pixels
     have been removed.
     """
-    rows, cols, deph = source.shape
-    new_source = np.zeros((rows, cols-1, deph))
+    if cut_horizontal:
+        # transpose messes with colour axis too
+        tmp = np.swapaxes(source, 0, 1)
+    else:
+        tmp = source
+    rows, cols, nb_colours = tmp.shape
+    new_source = np.zeros((rows, cols-1, nb_colours))
     for i in range(rows):
-        new_source[i, :line[i]] = source[i, :line[i]]
-        new_source[i, line[i]:] = source[i, line[i]+1:]
+        new_source[i, :line[i]] = tmp[i, :line[i]]
+        new_source[i, line[i]:] = tmp[i, line[i]+1:]
+    if cut_horizontal:
+        new_source = np.swapaxes(new_source, 0, 1)
     return new_source
 
 
-def seam_carving_x(source, step):
+def write_progress_to_console(step, nb_steps):
+    if nb_steps is not None:
+        tty_sizes = os.popen('stty size', 'r').read().split()
+        if tty_sizes == []:
+            columns = 80  # default
+        else:
+            _, columns = map(int, tty_sizes)
+        message = f"Computing nb_steps n°{step} of {nb_steps} <>"
+        width = columns - len(message)
+        advancment = math.ceil(width * (step/nb_steps))
+        if step != nb_steps-1:
+            print(
+                f"Computing step n°{step} of {nb_steps} <{'#'*advancment}{' '*(width-advancment)}>", end='\r')
+        else:
+            print(f"Computing step n°{step} of {nb_steps} <{'#'*width}>")
+    else:
+        print(f"Computing step n°{step} of {nb_steps}")
+
+
+def seam_carving_x(source: np.ndarray, steps: int, cut_horizontal: Boolean):
     """
     The function takes in entry an image source and a parameter
-    step specifying the number of step to do in the seam carving
-    algorithm. The function returns the image with step less rows.
+    steps specifying the number of steps to do in the seam carving
+    algorithm. The function returns the image with steps less rows.
     """
-    print(step, source)
-    rang = source.shape[1]//2
-    if step is not None:
-        rang = step
+    for k in range(steps):
 
-    for k in range(rang):
-        # juste for the style
-        if step is not None:
-            tty_sizes = os.popen('stty size', 'r').read().split()
-            if tty_sizes == []:
-                columns = 80  # default
-            else:
-                _, columns = map(int, tty_sizes)
-            message = f"Computing step n°{k} of {step} <>"
-            width = columns - len(message)
-            advancment = math.ceil(width * (k/step))
-            if k != step-1:
-                print(
-                    f"Computing step n°{k} of {step} <{'#'*advancment}{' '*(width-advancment)}>", end='\r')
-            else:
-                print(f"Computing step n°{k} of {step} <{'#'*width}>")
-        else:
-            print(f"Computing step n°{k} of {rang}")
-        # end of the flex
+        # write_progress_to_console(k, steps)
 
-        gradient = get_edge_gradient(source)
-        paths = get_minimal_path_image(gradient)
+        # O(n^2 * d^2)
+        gradient_map = get_edge_gradient(source)
+        paths = get_minimal_path_image(gradient_map, cut_horizontal)
         best_path, line = get_minimal_path_image_highlight(paths)
-        source = get_rid_of_line(source, line)
+        source = get_rid_of_line(source, line, cut_horizontal)
 
-        if step is None:
+        if steps is None:
             cv2.imshow("bestpath", best_path.astype('uint8'))
             cv2.waitKey(0)
 
-    # Add security in case of mis the end
-    if step is None:
-        b = input("Warning do not enter any more, except for validating the access message and after to quit. Acces Message := Yes\n::=")
-        while b != 'Yes':
-            b = input("Wrong access message, Acces Message := Yes\n::= ")
     return source
 
 
-def main_seam(step, src_path, output_path, force_write=False):
+def main_seam(step: int, src_path: str, output_path: str, force_write: Boolean, cut_horizontal: Boolean):
     """
     This function is an encapsulation for the seam
     carving. The function manages the argv entry
@@ -154,15 +178,15 @@ def main_seam(step, src_path, output_path, force_write=False):
         return
     # Allow the choice for the save path directly from the call
     # We do it now in order to have a early fail
-    # TODO Add an automatic save that not erase already existing file
 
     if not force_write:
         if os.path.exists(output_path):
+            old = output_path
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H-%M-%S")
             new_name = f"img_{step}_steps_{timestamp}.png"
-            output_path = os.path.join(os.path.dirname(output_path), new_name)
+            output_path = os.path.join(os.path.dirname(old), new_name)
             print(
-                f"Output path exists.  Use -f to forcibly overwrite.  Will write output to {output_path}.")
+                f"File {old} already exists.  Refusing to overwrite (use option -f to overwrite).  Will write output to {output_path}.")
 
     out_dir = os.path.dirname(output_path)
     if not os.path.exists(out_dir):
@@ -174,10 +198,7 @@ def main_seam(step, src_path, output_path, force_write=False):
     print("The source image is loaded ")
 
     # Seam Carving part
-    print("Beginning of the seam carving computations")
-    step = step if step else None  # Convert 0 to None
-    output = seam_carving_x(source, step)
-    print("The seam carving computation have finished")
+    output = seam_carving_x(source, step, cut_horizontal)
 
     # Save the output
     cv2.imwrite(output_path, output)
@@ -203,6 +224,8 @@ if __name__ == '__main__':
                         help='Specify a path to write the output image, default correspond to an example')
     parser.add_argument('-f', '--force', dest="force", action='store_true',
                         help="Force writing of output file, even if it overwrite an existing file")
+    parser.add_argument('--horizontal', dest="horizontal", action='store_true')
     args = parser.parse_args()
 
-    main_seam(args.step[0], args.input, args.output, args.force)
+    main_seam(args.step[0], args.input, args.output,
+              args.force, args.horizontal)
