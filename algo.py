@@ -1,21 +1,26 @@
 from pickletools import uint8
-from xmlrpc.client import Boolean
-from cv2 import seamlessClone
+from unicodedata import decimal
 import numpy as np
-import cv2
+# from cv2 import imshow, imwrite, waitKey, destroyAllWindows, IMREAD_COLOR
+from PIL import Image
 import os
 import datetime
 import math
 import argparse
-from PIL import ImageFilter
 from scipy import signal
+import typing
+
+
+def get_total_price(price, tax):
+    total_price = price + ((tax / 100) * price)
+    return total_price
 
 
 def run_app(path):
     print(f"Running seam carving on {path}")
 
 
-def get_rows_cols(img, cut_horizontal: Boolean):
+def get_rows_cols(img, cut_horizontal):
     if cut_horizontal:
         row, col = img.shape
         return col, row
@@ -23,7 +28,7 @@ def get_rows_cols(img, cut_horizontal: Boolean):
         return img.shape
 
 
-# def colorized_gradient(img, cut_horizontal: Boolean):
+# def colorized_gradient(img, cut_horizontal):
 #     """
 #     A Function used to debug to observe the gradient
 #     """
@@ -63,7 +68,7 @@ def get_edge_gradient(source: np.ndarray):
     return result
 
 
-def get_minimal_path_image(gradient_img: np.ndarray, cut_horizontal: Boolean):
+def get_minimal_path_image(gradient_img: np.ndarray, cut_horizontal):
     """
     This function takes in entry the gradient and computes the
     image of potential energy.
@@ -146,12 +151,14 @@ def write_progress_to_console(step, nb_steps):
         print(f"Computing step n°{step} of {nb_steps}")
 
 
-def seam_carving_x(source: np.ndarray, steps: int, remove_per_step: int, cut_horizontal: Boolean):
+def seam_carving_x(source: np.ndarray, total: int, recompute_every: int, cut_horizontal):
     """
     The function takes in entry an image source and a parameter
     steps specifying the number of steps to do in the seam carving
     algorithm. The function returns the image with steps less rows.
     """
+    steps = total // recompute_every
+
     for k in range(steps):
 
         # write_progress_to_console(k, steps)
@@ -159,7 +166,7 @@ def seam_carving_x(source: np.ndarray, steps: int, remove_per_step: int, cut_hor
         # O(n^2 * d^2)
         gradient_map = get_edge_gradient(source)
         paths = get_minimal_path_image(gradient_map, cut_horizontal)
-        for _ in range(remove_per_step):
+        for _ in range(recompute_every):
             best_path, line = get_minimal_path_image_highlight(paths)
             source, paths = get_rid_of_line(
                 source, best_path, line, cut_horizontal)
@@ -167,7 +174,13 @@ def seam_carving_x(source: np.ndarray, steps: int, remove_per_step: int, cut_hor
     return source
 
 
-def main_seam(step: int, remove_per_step: int, src_path: str, output_path: str, force_write: Boolean, cut_horizontal: Boolean):
+def resize(src: str, prop: int):
+    # don't do intermediate recomputations
+    print(f"Seam carving on {src} and keeping only {prop}% of image")
+    return main_seam(prop, prop, src, "./output/tmp.png", True, False)
+
+
+def main_seam(width: int, recompute_every: int, src_path: str, output_path: str, force_write, cut_horizontal):
     """
     This function is an encapsulation for the seam
     carving. The function manages the argv entry
@@ -177,14 +190,12 @@ def main_seam(step: int, remove_per_step: int, src_path: str, output_path: str, 
     if not os.path.exists(src_path):
         print("Source file not found.  Exiting...")
         return
-    # Allow the choice for the save path directly from the call
-    # We do it now in order to have a early fail
 
     if not force_write:
         if os.path.exists(output_path):
             old = output_path
             timestamp = datetime.datetime.now().strftime("%Y%m%d_%H-%M-%S")
-            new_name = f"img_{step}_steps_{timestamp}.png"
+            new_name = f"img_{width}_width_{timestamp}.png"
             output_path = os.path.join(os.path.dirname(old), new_name)
             print(
                 f"File {old} already exists.  Refusing to overwrite (use option -f to overwrite).  Will write output to {output_path}.")
@@ -194,22 +205,23 @@ def main_seam(step: int, remove_per_step: int, src_path: str, output_path: str, 
         os.makedirs(out_dir)
 
     # Load an color image
-    print("The source image is loading", end="\r")
-    source = cv2.imread(src_path, cv2.IMREAD_COLOR)
+    img_src = Image.open(src_path)
+    src_4channel = np.asarray(img_src)
+    source = src_4channel[..., :3]  # drop the transparency channel
     print("The source image is loaded ")
 
+    total = math.floor((1 - width/100) * source.shape[0])
+    print(f"Removing {total} columns")
+
     # Seam Carving part
-    output = seam_carving_x(source, step, remove_per_step, cut_horizontal)
+    output = seam_carving_x(source, total, recompute_every, cut_horizontal)
 
     # Save the output
-    cv2.imwrite(output_path, output)
+    img_output = Image.fromarray(output.astype('uint8'), 'RGB')
+    img_output.save(output_path)
     print(f"Output written to {output_path}")
 
-    # Display the final result
-    cv2.imshow('source', source.astype('uint8'))
-    cv2.imshow('output', output.astype('uint8'))
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    return output_path
 
 
 if __name__ == '__main__':
