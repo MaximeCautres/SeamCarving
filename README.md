@@ -33,7 +33,9 @@ TODO:
 Done:
 [x] Implementing the seam carving for picture
 [x] Implementing a better autosave - option to overwrite (-f), or will write to a new timestamped path.
+[ ] Option to recalc with each seam removed
 
 ### How to run code
 
-From `src/` folder, type `python3 main.py -h` for explanation of command-line options
+For GUI application, run `python3 app.py`
+For command-line application, type `python3 algo.py -h` for explanation of command-line options
