@@ -279,7 +279,7 @@ def carv_no_rescale_random(output: np.ndarray, big_cols_step: int, big_rows_step
     while k < step:
         write_progress_to_console(k, step)
         factor = (big_cols_step + 1)/step
-        col_or_row = random.randdom() >= factor
+        col_or_row = random.random() >= factor
         count = 1
         if col_or_row:
             while (random.random() >= factor) == col_or_row and count_rows + count < big_rows_step+1:
@@ -299,7 +299,7 @@ def carv_no_rescale_random(output: np.ndarray, big_cols_step: int, big_rows_step
                                         little_cols_step, False)
                 k = step
         else:
-            while (random.randdom() >= factor) == col_or_row and count_cols + count < big_cols_step+1:
+            while (random.random() >= factor) == col_or_row and count_cols + count < big_cols_step+1:
                 count += 1
             count_cols += count
             if count_cols <= big_cols_step:
@@ -376,8 +376,8 @@ def get_no_rescaled_version(source: np.ndarray, width: int, height: int, cols: i
             output, big_cols_step, big_rows_step, little_cols_step,
             little_rows_step, recompute_every)
     elif carving_methode == 'random':
-        carv_no_rescale_random(output, big_cols_step, big_rows_step,
-                               little_cols_step, little_rows_step, recompute_every, step)
+        output = carv_no_rescale_random(output, big_cols_step, big_rows_step,
+                                        little_cols_step, little_rows_step, recompute_every, step)
     elif carving_methode == 'width->height':
         output = carv_no_rescale_one_before_the_other(
             output, cols_step, rows_step, big_cols_step, big_rows_step,
