@@ -30,21 +30,6 @@ def get_rows_cols(img, cut_horizontal: Boolean):
         return img.shape
 
 
-# def colorized_gradient(img, cut_horizontal: Boolean):
-#     """
-#     A Function used to debug to observe the gradient
-#     """
-#     rows, cols = get_rows_cols(img, cut_horizontal)
-#     colorized_gradient_img = np.zeros((*img.shape, 3))
-#     for i in range(rows):
-#         for j in range(cols):
-#             if img[i, j] >= 0:
-#                 colorized_gradient_img[i, j, :] = np.array([0, 0, img[i, j]])
-#             else:
-#                 colorized_gradient_img[i, j, :] = np.array([-img[i, j], 0, 0])
-#     return (colorized_gradient_img/np.amax(colorized_gradient_img)*255).astype('uint8')
-
-
 def get_edge_gradient(source: np.ndarray):
     """
     This function takes an image and returns its gradient.
@@ -81,12 +66,12 @@ def get_minimal_path_image(gradient: np.ndarray):
     path_values = np.zeros((rows, cols))
     for i in range(rows-2, -1, -1):
         for j in range(cols):
-            path_values[i, j] = gradient[i, j] + min(path_values[i+1, max(0, j-1)], min(
-                path_values[i+1, j], path_values[i+1, min(j+1, cols-1)]))
+            path_values[i, j] = gradient[i, j] + min(path_values[i+1, max(0, j-1)],
+                                                     min(path_values[i+1, j], path_values[i+1, min(j+1, cols-1)]))
     return path_values/np.max(path_values)*255
 
 
-def get_minimal_path_image_highlight(paths):
+def get_minimal_path_image_highlight(paths: np.ndarray):
     """
     This function tsjke in entry a map of potential energy
     and returns the lowest energy path in line and draw it
@@ -106,7 +91,7 @@ def get_minimal_path_image_highlight(paths):
     return paths, line
 
 
-def get_rid_of_line(source, paths, line):
+def get_rid_of_line(source: np.ndarray, paths: np.ndarray, line):
     """
     This function takes in entry the source and the path
     of lowest energy and returns the source were paths pixels
@@ -123,7 +108,12 @@ def get_rid_of_line(source, paths, line):
     return new_source, new_paths
 
 
-def write_progress_to_console(step, nb_steps):
+def write_progress_to_console(step: int, nb_steps: int):
+    """
+    This function takes in entry a counter and its maximum
+    and manage a nice adapt to terminal prompt for the progression 
+    of the seam carving algorithm
+    """
     if nb_steps is not None:
         tty_sizes = os.popen('stty size', 'r').read().split()
         if tty_sizes == []:
@@ -142,7 +132,8 @@ def write_progress_to_console(step, nb_steps):
         print(f"Computing step n°{step} of {nb_steps}")
 
 
-def seam_carving_x(source: np.ndarray, steps: int, remove_per_step: int, print_result: bool = True):
+def seam_carving_x(source: np.ndarray, steps: int, recompute_every: int,
+                   print_result: bool = True):
     """
     The function takes in entry an image source and a parameter
     steps specifying the number of steps to do in the seam carving
@@ -155,7 +146,7 @@ def seam_carving_x(source: np.ndarray, steps: int, remove_per_step: int, print_r
         # O(n^2 * d^2)
         gradient_map = get_edge_gradient(source)
         paths = get_minimal_path_image(gradient_map)
-        for _ in range(remove_per_step):
+        for _ in range(recompute_every):
             best_path, line = get_minimal_path_image_highlight(paths)
             source, paths = get_rid_of_line(
                 source, best_path, line)
@@ -164,6 +155,12 @@ def seam_carving_x(source: np.ndarray, steps: int, remove_per_step: int, print_r
 
 
 def manage_input(input_string: str, input_size: int, dim_name: str):
+    """
+    The function as for goal to check the validity of the args give
+    to --height or --width argument when the main.Py is called in the 
+    console. Moreover, the function also return a normalized version 
+    of the input_string which does not depend on what type of data is in entry.
+    """
     if input_string[-1] == "%":
         try:
             input_string = int(input_string[:-1])
@@ -188,7 +185,213 @@ def manage_input(input_string: str, input_size: int, dim_name: str):
     return input_string
 
 
-def main_seam(remove_per_step: int, src_path: str, output_path: str, force_write: Boolean, height: int, width: int, norescale: bool, carving_methode: str):
+def get_rescaled_version(source: np.ndarray, width: int, height: int, cols: int,
+                         rows: int, recompute_every: int):
+    """
+    This function compute a seam carving of a pictures were both dimension 
+    need to be reduced. However here, the specificity is that we start by 
+    doing a rescale in order to have only one dimension to seam carve after, 
+    this reduce the possibility of creation of artefact as is minimize the 
+    paths to remove from the pictures
+    """
+    # get the less_affected dimension
+    cut_vertical = np.argmax(np.array((width, height)))
+    resize_ratio = height if cut_vertical else width
+    # dimension of the source image after the rescale
+    new_cols = int(cols * resize_ratio / 100)
+    new_rows = int(rows * resize_ratio / 100)
+    # new_source is the rescaled source
+    new_source = cv2.resize(source, (new_cols, new_rows),
+                            interpolation=cv2.INTER_CUBIC)
+    # compute the original wanted picture
+    out_cols = int(cols*width/100)
+    out_rows = int(rows*height/100)
+
+    # compute the number of path to remove for the seamcarving part
+    step = max(new_cols-out_cols, new_rows-out_rows)
+    big_step = step//recompute_every
+    little_step = step % recompute_every
+    # Seam Carving part
+    if not cut_vertical:
+        output = np.swapaxes(seam_carving_x(np.swapaxes(new_source, 0, 1), big_step,
+                                            recompute_every), 0, 1)
+        output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), 1,
+                                            little_step), 0, 1)
+    else:
+        output = seam_carving_x(new_source, big_step, recompute_every)
+        output = seam_carving_x(output, 1, little_step)
+    return output, step
+
+
+def carv_no_rescale_balanced(output: np.ndarray, big_cols_step: int, big_rows_step: int,
+                             little_cols_step: int, little_rows_step: int,
+                             recompute_every: int):
+    """
+    This function compute a seam carving of a pictures were both dimension 
+    need to be reduced. However here, we are doing the seam carving on both 
+    dimension and more prescisly we try to alternate proportionally between 
+    each dimension according to the number of path to remove on each dimension.
+    """
+    prop_factor = (big_cols_step + 1)/(big_rows_step+1)
+    prop_factor = max(prop_factor, 1/prop_factor)
+    abscisse_size = min(big_cols_step, big_rows_step)+1
+    how_many_to_remove = []
+    for k in range(1, abscisse_size+1):
+        how_many_to_remove.append(
+            int(prop_factor*k)-int((k-1)*prop_factor))
+    if big_cols_step < big_rows_step:
+        rows_step_list = how_many_to_remove
+        cols_step_list = [1]*abscisse_size
+    else:
+        cols_step_list = how_many_to_remove
+        rows_step_list = [1]*abscisse_size
+    for k in range(abscisse_size):
+        write_progress_to_console(k, abscisse_size)
+        if k != abscisse_size-1:
+            output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), rows_step_list[k],
+                                                recompute_every, False), 0, 1)
+            output = seam_carving_x(
+                output, cols_step_list[k], recompute_every, False)
+        else:
+            output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), rows_step_list[k]-1,
+                                                recompute_every, False), 0, 1)
+            output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), 1,
+                                                little_rows_step, False), 0, 1)
+            output = seam_carving_x(
+                output, cols_step_list[k]-1, recompute_every, False)
+            output = seam_carving_x(output, 1, little_cols_step, False)
+    return output
+
+
+def carv_no_rescale_random(output: np.ndarray, big_cols_step: int, big_rows_step: int,
+                           little_cols_step: int, little_rows_step: int, recompute_every: int,
+                           step: int):
+    """
+    This function compute a seam carving of a pictures were both dimension 
+    need to be reduced. However here, we are doing the seam carving on both 
+    dimension and more prescisly we chose at each step which dimension is
+    carved using a Bernouilly random variable of parameter the proportion
+    of path to remove on the rows on all path to remove. 
+    """
+    k = 0
+    count_rows = 0
+    count_cols = 0
+    while k < step:
+        write_progress_to_console(k, step)
+        factor = (big_cols_step + 1)/step
+        col_or_row = random.randdom() >= factor
+        count = 1
+        if col_or_row:
+            while (random.random() >= factor) == col_or_row and count_rows + count < big_rows_step+1:
+                count += 1
+            count_rows += count
+            if count_rows <= big_rows_step:
+                output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), count,
+                                                    recompute_every, False), 0, 1)
+            else:
+                output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), count-1,
+                                                    recompute_every, False), 0, 1)
+                output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), 1,
+                                                    little_rows_step, False), 0, 1)
+                output = seam_carving_x(output, big_cols_step-count_cols,
+                                        recompute_every, False)
+                output = seam_carving_x(output, 1,
+                                        little_cols_step, False)
+                k = step
+        else:
+            while (random.randdom() >= factor) == col_or_row and count_cols + count < big_cols_step+1:
+                count += 1
+            count_cols += count
+            if count_cols <= big_cols_step:
+                output = seam_carving_x(
+                    output, count, recompute_every, False)
+            else:
+                output = seam_carving_x(output, count-1,
+                                        recompute_every, False)
+                output = seam_carving_x(output, 1,
+                                        little_cols_step, False)
+                output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), big_rows_step-count_rows,
+                                                    recompute_every, False), 0, 1)
+                output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), 1,
+                                                    little_rows_step, False), 0, 1)
+                k = step
+        k += count
+    return output
+
+
+def carv_no_rescale_one_before_the_other(output: np.ndarray, cols_step: int, rows_step: int,
+                                         big_cols_step: int, big_rows_step: int, little_cols_step: int,
+                                         little_rows_step: int, recompute_every: int):
+    """
+    This function compute a seam carving of a pictures were both dimension 
+    need to be reduced. However here, we are doing the seam carving on both 
+    dimension and more prescisly it start by removing all the paths to remove 
+    on the cols and it finally removes all the paths on the rows.
+    """
+    write_progress_to_console(0, cols_step+rows_step)
+    output = seam_carving_x(output, big_cols_step,
+                            recompute_every, False)
+    write_progress_to_console(
+        big_cols_step*recompute_every, cols_step+rows_step)
+    output = seam_carving_x(output, 1,
+                            little_cols_step, False)
+    write_progress_to_console(
+        big_cols_step*recompute_every + little_cols_step, cols_step+rows_step)
+    output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), big_rows_step,
+                                        recompute_every, False), 0, 1)
+    write_progress_to_console(big_cols_step*recompute_every + little_cols_step +
+                              big_rows_step*recompute_every, cols_step+rows_step)
+    output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), 1,
+                                        little_rows_step, False), 0, 1)
+    write_progress_to_console(big_cols_step*recompute_every + little_cols_step +
+                              big_rows_step*recompute_every+little_rows_step, cols_step+rows_step)
+    return output
+
+
+def get_no_rescaled_version(source: np.ndarray, width: int, height: int, cols: int, rows:
+                            int, recompute_every: int, carving_methode: str):
+    """
+    This function compute a seam carving of a pictures were both dimension 
+    need to be reduced. However here, we are doing the seam carving on both 
+    dimension. There is multiple ways to do it, you can do it by alternating, 
+    choosing randomly, are by doing dimension one after the other. This function
+    compute common data used by the three variant above and call the good one.
+    """
+    # get the new image size
+    new_cols = int(cols * width / 100)
+    new_rows = int(rows * height / 100)
+    # compute the path to carv on each dim
+    cols_step = cols-new_cols
+    rows_step = rows-new_rows
+    # compute the way this path will be removed
+    big_cols_step = cols_step//recompute_every
+    little_cols_step = cols_step % recompute_every
+    big_rows_step = rows_step//recompute_every
+    little_rows_step = rows_step % recompute_every
+    step = big_cols_step + big_rows_step + 2
+    # remove them as it is required by the user
+    output = source.copy()
+    if carving_methode == 'balanced':
+        output = carv_no_rescale_balanced(
+            output, big_cols_step, big_rows_step, little_cols_step,
+            little_rows_step, recompute_every)
+    elif carving_methode == 'random':
+        carv_no_rescale_random(output, big_cols_step, big_rows_step,
+                               little_cols_step, little_rows_step, recompute_every, step)
+    elif carving_methode == 'width->height':
+        output = carv_no_rescale_one_before_the_other(
+            output, cols_step, rows_step, big_cols_step, big_rows_step,
+            little_cols_step, little_rows_step, recompute_every)
+    else:
+        output = np.swapaxes(carv_no_rescale_one_before_the_other(
+            np.swapaxes(
+                output, 0, 1), rows_step, cols_step, big_rows_step, big_cols_step,
+            little_rows_step, little_cols_step, recompute_every), 0, 1)
+    return output, step
+
+
+def main_seam(recompute_every: int, src_path: str, output_path: str, force_write: Boolean,
+              height: int, width: int, norescale: bool, carving_methode: str):
     """
     This function is an encapsulation for the seam
     carving. The function manages the argv entry
@@ -209,7 +412,6 @@ def main_seam(remove_per_step: int, src_path: str, output_path: str, force_write
     print("The source image is loading", end="\r")
     source = cv2.imread(src_path, cv2.IMREAD_COLOR)
     rows, cols, _ = source.shape
-    print(rows, cols)
     print("The source image is loaded ")
 
     # Manage the input
@@ -219,159 +421,11 @@ def main_seam(remove_per_step: int, src_path: str, output_path: str, force_write
         norescale = False
 
     if norescale:
-        # get the new image size
-        new_cols = int(cols * width / 100)
-        new_rows = int(rows * height / 100)
-        print(new_cols, new_rows)
-        # compute the path to carv on each dim
-        cols_step = cols-new_cols
-        rows_step = rows-new_rows
-        # compute the way this path will be removed
-        big_cols_step = cols_step//remove_per_step
-        little_cols_step = cols_step % remove_per_step
-        big_rows_step = rows_step//remove_per_step
-        little_rows_step = rows_step % remove_per_step
-        step = big_cols_step + big_rows_step + 2
-        # remove them as it is required by the user
-        output = source.copy()
-        if carving_methode == 'balanced':
-            prop_factor = (big_cols_step + 1)/(big_rows_step+1)
-            prop_factor = max(prop_factor, 1/prop_factor)
-            abscisse_size = min(big_cols_step, big_rows_step)+1
-            how_many_to_remove = []
-            for k in range(1, abscisse_size+1):
-                how_many_to_remove.append(
-                    int(prop_factor*k)-int((k-1)*prop_factor))
-            if big_cols_step < big_rows_step:
-                rows_step_list = how_many_to_remove
-                cols_step_list = [1]*abscisse_size
-            else:
-                cols_step_list = how_many_to_remove
-                rows_step_list = [1]*abscisse_size
-            print(cols_step_list, rows_step_list)
-            for k in range(abscisse_size):
-                write_progress_to_console(k, abscisse_size)
-                if k != abscisse_size-1:
-                    output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), rows_step_list[k],
-                                                        remove_per_step, False), 0, 1)
-                    output = seam_carving_x(
-                        output, cols_step_list[k], remove_per_step, False)
-                else:
-                    output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), rows_step_list[k]-1,
-                                                        remove_per_step, False), 0, 1)
-                    output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), 1,
-                                                        little_rows_step, False), 0, 1)
-                    output = seam_carving_x(
-                        output, cols_step_list[k]-1, remove_per_step, False)
-                    output = seam_carving_x(output, 1, little_cols_step, False)
-        elif carving_methode == 'random':
-            k = 0
-            count_rows = 0
-            count_cols = 0
-            while k < step:
-                write_progress_to_console(k, step)
-                col_or_row = random.randrange(0, 2)
-                count = 1
-                if col_or_row:
-                    while random.randrange(0, 2) == col_or_row and count_rows + count < big_rows_step+1:
-                        count += 1
-                    count_rows += count
-                    if count_rows <= big_rows_step:
-                        output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), count,
-                                                            remove_per_step, False), 0, 1)
-                    else:
-                        output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), count-1,
-                                                            remove_per_step, False), 0, 1)
-                        output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), 1,
-                                                            little_rows_step, False), 0, 1)
-                        output = seam_carving_x(output, big_cols_step-count_cols,
-                                                remove_per_step, False)  # vérifier si il manque a pas des +1
-                        output = seam_carving_x(output, 1,
-                                                little_cols_step, False)
-                        k = step
-                else:
-                    while random.randrange(0, 2) == col_or_row and count_cols + count < big_cols_step+1:
-                        count += 1
-                    count_cols += count
-                    if count_cols <= big_cols_step:
-                        output = seam_carving_x(
-                            output, count, remove_per_step, False)
-                    else:
-                        output = seam_carving_x(output, count-1,
-                                                remove_per_step, False)
-                        output = seam_carving_x(output, 1,
-                                                little_cols_step, False)
-                        output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), big_rows_step-count_rows,
-                                                            remove_per_step, False), 0, 1)
-                        output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), 1,
-                                                            little_rows_step, False), 0, 1)
-                        k = step
-                k += count
-        elif carving_methode == 'width->height':
-            write_progress_to_console(0, cols_step+rows_step)
-            output = seam_carving_x(output, big_cols_step,
-                                    remove_per_step, False)
-            write_progress_to_console(
-                big_cols_step*remove_per_step, cols_step+rows_step)
-            output = seam_carving_x(output, 1,
-                                    little_cols_step, False)
-            write_progress_to_console(
-                big_cols_step*remove_per_step + little_cols_step, cols_step+rows_step)
-            output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), big_rows_step,
-                                                remove_per_step, False), 0, 1)
-            write_progress_to_console(big_cols_step*remove_per_step + little_cols_step +
-                                      big_rows_step*remove_per_step, cols_step+rows_step)
-            output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), 1,
-                                                little_rows_step, False), 0, 1)
-            write_progress_to_console(big_cols_step*remove_per_step + little_cols_step +
-                                      big_rows_step*remove_per_step+little_rows_step, cols_step+rows_step)
-        else:
-            write_progress_to_console(0, cols_step+rows_step)
-            output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), big_rows_step,
-                                                remove_per_step, False), 0, 1)
-            write_progress_to_console(
-                big_rows_step*remove_per_step, cols_step+rows_step)
-            output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), 1,
-                                                little_rows_step, False), 0, 1)
-            write_progress_to_console(
-                big_rows_step*remove_per_step+little_rows_step, cols_step+rows_step)
-            output = seam_carving_x(output, big_cols_step,
-                                    remove_per_step, False)
-            write_progress_to_console(big_cols_step*remove_per_step + big_rows_step *
-                                      remove_per_step+little_rows_step, cols_step+rows_step)
-            output = seam_carving_x(output, 1,
-                                    little_cols_step, False)
-            write_progress_to_console(big_cols_step*remove_per_step + little_cols_step +
-                                      big_rows_step*remove_per_step+little_rows_step, cols_step+rows_step)
-        print(output.shape)
+        output, step = get_no_rescaled_version(
+            source, width, height, cols, rows, recompute_every, carving_methode)
     else:
-        # get the less_affected dimension
-        cut_vertical = np.argmax(np.array((width, height)))
-        resize_ratio = height if cut_vertical else width
-        # dimension of the source image after the rescale
-        new_cols = int(cols * resize_ratio / 100)
-        new_rows = int(rows * resize_ratio / 100)
-        # new_source is the rescaled source
-        new_source = cv2.resize(source, (new_cols, new_rows),
-                                interpolation=cv2.INTER_CUBIC)
-        # compute the original wanted picture
-        out_cols = int(cols*width/100)
-        out_rows = int(rows*height/100)
-
-        # compute the number of path to remove for the seamcarving part
-        step = max(new_cols-out_cols, new_rows-out_rows)
-        print(step)
-        big_step = step//remove_per_step
-        little_step = step % remove_per_step
-        # Seam Carving part
-        if not cut_vertical:
-            output = np.swapaxes(seam_carving_x(np.swapaxes(new_source, 0, 1), big_step,
-                                                remove_per_step), 0, 1)
-            output = np.swapaxes(seam_carving_x(np.swapaxes(output, 0, 1), 1,
-                                                little_step), 0, 1)
-        else:
-            output = seam_carving_x(new_source, big_step, remove_per_step)
-            output = seam_carving_x(output, 1, little_step)
+        output, step = get_rescaled_version(
+            source, width, height, cols, rows, recompute_every)
 
     if not force_write:
         if os.path.exists(output_path):
