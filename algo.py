@@ -448,7 +448,7 @@ if __name__ == '__main__':
                         help="specify the percentage of the height of the input image you want to reach for the height for the output image")
     parser.add_argument('--width', dest="width", type=str, default="100%",
                         help="specify the percentage of the width of the input image you want to reach for the width for the output image")
-    parser.add_argument('-per-step', dest="per_step", type=int,
+    parser.add_argument('--per-step', dest="per_step", type=int,
                         default=1,
                         help='Specify how many path to remove at each step.')
     parser.add_argument('-i', '--input', dest="input", type=str,
