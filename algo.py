@@ -434,9 +434,13 @@ def main_seam(recompute_every: int, src_path: str, output_path: str, force_write
                 f"File {old} already exists.  Refusing to overwrite (use option -f to overwrite).  Will write output to {output_path}.")
 
     # Save the output
-    img_output = Image.fromarray(output.astype('uint8'), 'RGB')
-    img_output.save(output_path)
+    cv2.imwrite(output, output_path)
     print(f"Output written to {output_path}")
+
+    cv2.imshow('source', source.astype('uint8'))
+    cv2.imshow('output', output.astype('uint8'))
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
     return output_path
 
